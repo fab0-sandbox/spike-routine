@@ -1,0 +1,34 @@
+{
+  "name": "@fab0/cli",
+  "version": "0.0.0-spike.1",
+  "description": "A.2 spike of the fab0 rebuild: the stub attempt protocol a routine session runs. Not for use.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "fab0": "dist/fab0.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fab0-sandbox/spike-routine.git",
+    "directory": "cli"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "spike"
+  },
+  "scripts": {
+    "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --banner:js='#!/usr/bin/env node' --outfile=dist/fab0.mjs",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}
