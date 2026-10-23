@@ -1,0 +1,20 @@
+{
+  "name": "fab0-spike-worker",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "deploy": "wrangler deploy"
+  },
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "agents": "^0.30.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261023.1",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.152.0"
+  },
+  "private": "true"
+}

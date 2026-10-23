@@ -1,0 +1,27 @@
+{
+  // A.2 spike of the fab0 rebuild: one RunAgent per run, one AttemptWorkflow per attempt.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fab0-spike-routine",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [{ "name": "RUN_AGENT", "class_name": "RunAgent" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RunAgent"] }],
+  "workflows": [
+    { "name": "fab0-spike-attempt", "binding": "ATTEMPT_WORKFLOW", "class_name": "AttemptWorkflow" }
+  ],
+  "vars": {
+    "GITHUB_APP_ID": "5437398",
+    "GITHUB_INSTALLATION_ID": "174376509",
+    "LEASE_REPO": "fab0-sandbox/factory",
+    // The routine's Fire URL (not secret), set once the routine exists.
+    "ROUTINE_FIRE_URL": ""
+  }
+  // Secrets, set with `npx wrangler secret put <NAME>`, never in this file:
+  //   GITHUB_APP_KEY  the App's private key in PKCS#8 PEM
+  //   ROUTINE_TOKEN   the routine's API trigger token
+  //   ADMIN_TOKEN     bearer token for POST /spike/run
+}
