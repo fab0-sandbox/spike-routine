@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 type Saved = { ref: string; worker: string; token: string; skill: string; branch: string; startedAt: string };
 
-const VERSION = "0.0.0-spike.1";
+const VERSION = "0.0.0-spike.2";
 
 function arg(args: string[], name: string): string | undefined {
   const i = args.indexOf(`--${name}`);
@@ -150,10 +150,21 @@ function openPr(saved: Saved) {
   }
   const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
   const repo = run("git", ["remote", "get-url", "origin"]).out.match(/github\.com[/:]([^/]+\/[^/.]+)/)?.[1];
+  // REST through `gh api`, which sessions allow where `gh pr create` (GraphQL) is refused.
+  if (has("gh") && repo) {
+    const r = run("gh", [
+      "api", "-X", "POST", `repos/${repo}/pulls`,
+      "-f", `title=${title}`, "-f", `body=${body}`, "-f", `head=${saved.branch}`, "-f", "base=main", "-F", "draft=true",
+      "--jq", ".html_url",
+    ]);
+    tried.push({ method: "gh api POST pulls", ...r });
+    if (r.ok && r.out.includes("/pull/")) return { url: r.out, tried };
+  }
   if (token && repo) {
     const r = run("curl", [
       "-sS", "-X", "POST", `https://api.github.com/repos/${repo}/pulls`,
       "-H", `Authorization: Bearer ${token}`, "-H", "Accept: application/vnd.github+json",
+      "-H", "Content-Type: application/json",
       "-d", JSON.stringify({ title, body, head: saved.branch, base: "main", draft: true }),
     ]);
     const url = r.out.match(/"html_url":\s*"([^"]+\/pull\/\d+)"/)?.[1];
