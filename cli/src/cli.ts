@@ -6,9 +6,9 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-type Saved = { ref: string; worker: string; token: string; skill: string; branch: string; startedAt: string };
+type Saved = { ref: string; worker: string; token: string; skill: string; branch: string; startedAt: string; branchReused: boolean };
 
-const VERSION = "0.0.0-spike.2";
+const VERSION = "0.0.0-spike.3";
 
 function arg(args: string[], name: string): string | undefined {
   const i = args.indexOf(`--${name}`);
@@ -77,14 +77,22 @@ function usageSince(startedAt: string) {
   const files: string[] = [];
   const costs: number[] = [];
   if (!existsSync(root)) return { found: false, root };
-  for (const dir of readdirSync(root)) {
-    const d = join(root, dir);
-    if (!statSync(d).isDirectory()) continue;
-    for (const f of readdirSync(d)) {
-      if (!f.endsWith(".jsonl")) continue;
-      const p = join(d, f);
-      if (statSync(p).mtimeMs < since) continue;
-      files.push(`${dir}/${f}`);
+  // Every transcript under the projects folder, subfolders included: a skill or subagent that runs on its
+  // own model writes its own transcript there.
+  const perFile: Record<string, { models: string[]; messages: number; output: number }> = {};
+  const walk = (dir: string, depth: number): string[] =>
+    depth > 5
+      ? []
+      : readdirSync(dir).flatMap((name) => {
+          const p = join(dir, name);
+          if (statSync(p).isDirectory()) return walk(p, depth + 1);
+          return name.endsWith(".jsonl") && statSync(p).mtimeMs >= since ? [p] : [];
+        });
+  for (const p of walk(root, 0)) {
+    {
+      const rel = p.slice(root.length + 1);
+      files.push(rel);
+      const mine = (perFile[rel] = { models: [] as string[], messages: 0, output: 0 });
       for (const line of readFileSync(p, "utf8").split("\n")) {
         if (!line.trim()) continue;
         let entry: any;
@@ -98,6 +106,9 @@ function usageSince(startedAt: string) {
         if (entry.type !== "assistant" || !m?.usage) continue;
         if (entry.timestamp && Date.parse(entry.timestamp) < since) continue;
         if (m.model) models.add(m.model);
+        if (m.model && !mine.models.includes(m.model)) mine.models.push(m.model);
+        mine.messages++;
+        mine.output += m.usage.output_tokens ?? 0;
         totals.messages++;
         totals.input += m.usage.input_tokens ?? 0;
         totals.output += m.usage.output_tokens ?? 0;
@@ -109,6 +120,7 @@ function usageSince(startedAt: string) {
   return {
     found: true,
     files,
+    perFile,
     models: [...models],
     tokens: totals,
     costUSD: costs.length ? costs.reduce((a, b) => a + b, 0) : null,
@@ -122,9 +134,11 @@ async function start(args: string[]) {
   const startedAt = new Date().toISOString();
   const res = await post(worker, `/attempts/${ref}/start`, token, { startedAt, probe: probe() });
   const { skill, branch } = res.brief as { skill: string; branch: string };
-  const sw = run("git", ["switch", "-C", branch]);
+  // A revision continues its step's branch (D125): start from the remote branch when it exists.
+  const fetched = run("git", ["fetch", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+  const sw = run("git", fetched.ok ? ["switch", "-C", branch, `origin/${branch}`] : ["switch", "-C", branch]);
   if (!sw.ok) fail(`git switch ${branch}: ${sw.out}`);
-  const saved: Saved = { ref, worker, token, skill, branch, startedAt };
+  const saved: Saved = { ref, worker, token, skill, branch, startedAt, branchReused: fetched.ok };
   mkdirSync(tmpdir(), { recursive: true });
   writeFileSync(savedPath(ref), JSON.stringify(saved));
   process.stdout.write(
@@ -176,6 +190,15 @@ function openPr(saved: Saved) {
   return { url: null, tried };
 }
 
+// A revision's branch already has its PR: find it over REST instead of opening a second one.
+function existingPr(saved: Saved) {
+  const repo = run("git", ["remote", "get-url", "origin"]).out.match(/github\.com[/:]([^/]+\/[^/.]+)/)?.[1];
+  if (!has("gh") || !repo) return null;
+  const owner = repo.split("/")[0];
+  const r = run("gh", ["api", `repos/${repo}/pulls?head=${owner}:${saved.branch}&state=open`, "--jq", ".[0].html_url // empty"]);
+  return r.ok && r.out ? { url: r.out, tried: [{ method: "gh api GET pulls (existing)", ...r }] } : null;
+}
+
 async function finish(args: string[], failed?: string) {
   const ref = need(args, "ref");
   if (!existsSync(savedPath(ref))) fail(`no started attempt ${ref} on this machine`);
@@ -189,7 +212,7 @@ async function finish(args: string[], failed?: string) {
     const c = run("git", ["commit", "-m", `Spike attempt ${ref}`]);
     commit = { ok: c.ok, out: c.out.slice(0, 300), author: run("git", ["log", "-1", "--format=%an <%ae>"]).out };
     push = run("git", ["push", "-u", "origin", `HEAD:refs/heads/${saved.branch}`]);
-    pr = push.ok ? openPr(saved) : null;
+    pr = push.ok ? (saved.branchReused ? existingPr(saved) ?? openPr(saved) : openPr(saved)) : null;
   }
   const report = {
     outcome: failed ? "failed" : "finished",
@@ -197,6 +220,8 @@ async function finish(args: string[], failed?: string) {
     startedAt: saved.startedAt,
     finishedAt,
     durationMs: Date.parse(finishedAt) - Date.parse(saved.startedAt),
+    branch: saved.branch,
+    branchReused: saved.branchReused,
     commit,
     push,
     pr,

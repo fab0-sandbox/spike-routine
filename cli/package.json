@@ -1,6 +1,6 @@
 {
   "name": "@fab0/cli",
-  "version": "0.0.0-spike.2",
+  "version": "0.0.0-spike.3",
   "description": "A.2 spike of the fab0 rebuild: the stub attempt protocol a routine session runs. Not for use.",
   "license": "Apache-2.0",
   "type": "module",
